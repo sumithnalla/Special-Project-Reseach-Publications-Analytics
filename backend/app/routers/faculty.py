@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -51,12 +52,13 @@ def analytics(request: Request, user: FacultyUser):
 
 
 @router.get("/publications")
-def list_publications(request: Request, user: FacultyUser, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), search: str | None = None, year: int | None = None, publication_type: str | None = None, publication_status: str | None = Query(None, alias="status"), indexing: str | None = None, quartile: str | None = None):
+def list_publications(request: Request, user: FacultyUser, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=50), search: str | None = None, year: int | None = None, publication_type: str | None = None, publication_status: str | None = Query(None, alias="status"), indexing: str | None = None, quartile: str | None = None):
     database = get_database(request.app)
     filters = {"faculty_id": faculty_profile(database, user["_id"])["_id"]} | publication_filters(year, publication_type, publication_status, indexing, quartile)
     if search:
-        filters["$or"] = [{"title": {"$regex": search, "$options": "i"}}, {"journal_or_conference": {"$regex": search, "$options": "i"}}, {"doi": {"$regex": search, "$options": "i"}}]
-    result = paginated(database.publications, filters, page, page_size, [("submitted_at", -1)])
+        term = re.escape(search.strip())
+        filters["$or"] = [{"title": {"$regex": term, "$options": "i"}}, {"journal_or_conference": {"$regex": term, "$options": "i"}}, {"doi": {"$regex": term, "$options": "i"}}]
+    result = paginated(database.publications, filters, page, page_size, [("submitted_at", -1), ("_id", -1)])
     return result
 
 

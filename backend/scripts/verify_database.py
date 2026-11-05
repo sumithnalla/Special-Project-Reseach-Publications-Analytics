@@ -31,8 +31,8 @@ def verify_database(database) -> dict:
         "admin": database.users.count_documents({"email": "sumithnalla0607@gmail.com", "role": "admin", "status": "active"}),
         "publication_statuses": {item["_id"]: item["count"] for item in database.publications.aggregate([{"$match": {"seed_owned": True}}, {"$group": {"_id": "$status", "count": {"$sum": 1}}}])},
     }
-    if summary["departments"] != 10 or summary["faculty"] != 75 or summary["publications"] != 2500 or summary["admin"] != 1:
-        raise RuntimeError(f"Unexpected seed counts: {summary}")
+    if summary["departments"] < 10 or summary["faculty"] < 75 or summary["publications"] < 1 or summary["admin"] != 1:
+        raise RuntimeError(f"Missing required demo records: {summary}")
     if not all(summary["publication_statuses"].get(status, 0) for status in ("approved", "pending", "rejected")):
         raise RuntimeError("Seed data must contain approved, pending, and rejected publications")
     return summary

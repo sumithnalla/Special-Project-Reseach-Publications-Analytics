@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import re
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -11,7 +12,7 @@ from app.db.mongodb import get_database
 from app.schemas import FacultyCreate, FacultyUpdate, PublicationInput, RejectionRequest, StatusUpdate
 from app.services.audit import log_action
 from app.services.data import approved_analytics, enrich_publications, paginated, public_document, publication_filters
-from app.services.reports import build_excel, build_pdf
+from app.services.reports import build_csv, build_excel, build_pdf, report_documents, report_summary
 
 router = APIRouter(prefix="/api/admin", tags=["Administration"])
 AdminUser = Annotated[dict, Depends(require_admin)]
@@ -31,7 +32,8 @@ def list_faculty(request: Request, user: AdminUser, page: int = Query(1, ge=1), 
     database = get_database(request.app)
     filters = {}
     if search:
-        filters["$or"] = [{"name": {"$regex": search, "$options": "i"}}, {"faculty_id": {"$regex": search, "$options": "i"}}]
+        term = re.escape(search.strip())
+        filters["$or"] = [{"name": {"$regex": term, "$options": "i"}}, {"faculty_id": {"$regex": term, "$options": "i"}}]
     result = paginated(database.faculty_profiles, filters, page, page_size, [("name", 1)])
     user_ids = [object_id(item["user_id"], "user") for item in result["items"]]
     users = {str(item["_id"]): item for item in database.users.find({"_id": {"$in": user_ids}})}
@@ -54,17 +56,29 @@ def list_departments(request: Request, user: AdminUser):
 @router.post("/faculty", status_code=status.HTTP_201_CREATED)
 def create_faculty(payload: FacultyCreate, request: Request, user: AdminUser):
     database = get_database(request.app)
+    email = str(payload.email).strip().lower()
+    faculty_code = payload.faculty_id.strip().upper()
+    if database.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email is already registered")
+    if database.faculty_profiles.find_one({"faculty_id": faculty_code}):
+        raise HTTPException(status_code=409, detail="Faculty ID already exists")
     department_id = object_id(payload.department_id, "department")
     if not database.departments.find_one({"_id": department_id, "status": "active"}):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Department is not active")
     now = datetime.now(UTC)
     try:
-        result = database.users.insert_one({"email": payload.email.lower(), "password_hash": hash_password(payload.temporary_password), "role": "faculty", "status": "active", "created_at": now, "updated_at": now, "last_login": None})
-        profile = payload.model_dump(exclude={"email", "temporary_password", "department_id"}) | {"user_id": result.inserted_id, "department_id": department_id, "phone": "", "profile_image": None, "created_at": now, "updated_at": now}
-        profile_id = database.faculty_profiles.insert_one(profile).inserted_id
+        result = database.users.insert_one({"email": email, "password_hash": hash_password(payload.temporary_password), "role": "faculty", "status": "active", "created_at": now, "updated_at": now, "last_login": None})
     except DuplicateKeyError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email or faculty ID already exists") from exc
-    log_action(database, user["_id"], "CREATE_FACULTY", "faculty_profile", profile_id, {"email": payload.email.lower()})
+        raise HTTPException(status_code=409, detail="Email is already registered") from exc
+    profile = payload.model_dump(exclude={"email", "temporary_password", "department_id"}) | {"faculty_id": faculty_code, "user_id": result.inserted_id, "department_id": department_id, "phone": "", "profile_image": None, "created_at": now, "updated_at": now}
+    try:
+        profile_id = database.faculty_profiles.insert_one(profile).inserted_id
+    except Exception as exc:
+        database.users.delete_one({"_id": result.inserted_id})
+        if isinstance(exc, DuplicateKeyError):
+            raise HTTPException(status_code=409, detail="Faculty ID already exists") from exc
+        raise
+    log_action(database, user["_id"], "CREATE_FACULTY", "faculty_profile", profile_id, {"email": email})
     return public_document(database.faculty_profiles.find_one({"_id": profile_id}))
 
 
@@ -114,22 +128,23 @@ def publication_or_404(database, publication_id: str) -> dict:
 
 
 @router.get("/publications")
-def list_publications(request: Request, user: AdminUser, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), search: str | None = None, year: int | None = None, publication_type: str | None = None, publication_status: str | None = Query(None, alias="status"), indexing: str | None = None, quartile: str | None = None, department_id: str | None = None):
+def list_publications(request: Request, user: AdminUser, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=50), search: str | None = None, year: int | None = None, publication_type: str | None = None, publication_status: str | None = Query(None, alias="status"), indexing: str | None = None, quartile: str | None = None, department_id: str | None = None):
     database = get_database(request.app)
     filters = publication_filters(year, publication_type, publication_status, indexing, quartile)
     if department_id:
         faculty_ids = [item["_id"] for item in database.faculty_profiles.find({"department_id": object_id(department_id, "department")}, {"_id": 1})]
         filters["faculty_id"] = {"$in": faculty_ids}
     if search:
-        filters["$or"] = [{"title": {"$regex": search, "$options": "i"}}, {"journal_or_conference": {"$regex": search, "$options": "i"}}, {"doi": {"$regex": search, "$options": "i"}}]
+        term = re.escape(search.strip())
+        filters["$or"] = [{"title": {"$regex": term, "$options": "i"}}, {"journal_or_conference": {"$regex": term, "$options": "i"}}, {"doi": {"$regex": term, "$options": "i"}}]
     total = database.publications.count_documents(filters)
-    documents = list(database.publications.find(filters).sort("submitted_at", -1).skip((page - 1) * page_size).limit(page_size))
+    documents = list(database.publications.find(filters).sort([("submitted_at", -1), ("_id", -1)]).skip((page - 1) * page_size).limit(page_size))
     return {"items": enrich_publications(database, documents), "page": page, "page_size": page_size, "total": total, "total_pages": max(1, (total + page_size - 1) // page_size)}
 
 
 @router.get("/publications/pending")
-def pending_publications(request: Request, user: AdminUser, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
-    return list_publications(request, user, page, page_size, publication_status="pending")
+def pending_publications(request: Request, user: AdminUser, page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=50)):
+    return list_publications(request, user, page=page, page_size=page_size, search=None, year=None, publication_type=None, publication_status="pending", indexing=None, quartile=None, department_id=None)
 
 
 @router.get("/publications/{publication_id}")
@@ -194,20 +209,47 @@ def analytics_faculty(request: Request, user: AdminUser):
     return [{"name": item["faculty"]["name"], "publications": item["publications"], "citations": item["citations"]} for item in database.publications.aggregate(pipeline)]
 
 
-@router.get("/reports/publications/pdf")
-def report_pdf(request: Request, user: AdminUser, year: int | None = None, department_id: str | None = None):
+def report_filter_params(year: int | None = None, department_id: str | None = None, faculty_id: str | None = None, topic: str | None = Query(None, max_length=100), publication_type: str | None = Query(None, pattern="^(journal|conference|book_chapter)$"), publication_status: str = Query("approved", alias="status", pattern="^(all|pending|approved|rejected)$"), date_from: date | None = None, date_to: date | None = None):
+    return {"year": year, "department_id": department_id, "faculty_id": faculty_id, "topic": topic, "publication_type": publication_type, "publication_status": publication_status, "date_from": date_from, "date_to": date_to}
+
+
+ReportParams = Annotated[dict, Depends(report_filter_params)]
+
+
+@router.get("/reports/options")
+def report_options(request: Request, user: AdminUser):
     database = get_database(request.app)
-    department = object_id(department_id, "department") if department_id else None
-    log_action(database, user["_id"], "GENERATE_PDF_REPORT", "report", user["_id"], {"year": year, "department_id": department_id})
-    return StreamingResponse(build_pdf(database, year, department), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=research-publication-analytics-report.pdf"})
+    return {"departments": list_departments(request, user), "faculty": [{"id": str(item["_id"]), "name": item["name"], "faculty_id": item["faculty_id"], "department_id": str(item["department_id"])} for item in database.faculty_profiles.find({}, {"name": 1, "faculty_id": 1, "department_id": 1}).sort("name", 1)]}
+
+
+@router.get("/reports/publications/summary")
+def report_preview(request: Request, user: AdminUser, filters: ReportParams):
+    return report_summary(report_documents(get_database(request.app), **filters))
+
+
+def report_download(request: Request, user: dict, filters: dict, kind: str):
+    database = get_database(request.app)
+    docs = report_documents(database, **filters)
+    streams = {"csv": (lambda: build_csv(docs), "text/csv; charset=utf-8", "csv"), "pdf": (lambda: build_pdf(database, docs=docs), "application/pdf", "pdf"), "excel": (lambda: build_excel(database, docs=docs), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx")}
+    build, media_type, extension = streams[kind]
+    stream = build()
+    log_action(database, user["_id"], f"GENERATE_{kind.upper()}_REPORT", "report", user["_id"], {"filters": {key: str(value) for key, value in filters.items() if value is not None}, "records": len(docs)})
+    return StreamingResponse(stream, media_type=media_type, headers={"Content-Disposition": f"attachment; filename=research-publication-analytics-report.{extension}"})
+
+
+@router.get("/reports/publications/csv")
+def report_csv(request: Request, user: AdminUser, filters: ReportParams):
+    return report_download(request, user, filters, "csv")
+
+
+@router.get("/reports/publications/pdf")
+def report_pdf(request: Request, user: AdminUser, filters: ReportParams):
+    return report_download(request, user, filters, "pdf")
 
 
 @router.get("/reports/publications/excel")
-def report_excel(request: Request, user: AdminUser, year: int | None = None, department_id: str | None = None):
-    database = get_database(request.app)
-    department = object_id(department_id, "department") if department_id else None
-    log_action(database, user["_id"], "GENERATE_EXCEL_REPORT", "report", user["_id"], {"year": year, "department_id": department_id})
-    return StreamingResponse(build_excel(database, year, department), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=research-publication-analytics-report.xlsx"})
+def report_excel(request: Request, user: AdminUser, filters: ReportParams):
+    return report_download(request, user, filters, "excel")
 
 
 @router.get("/audit-logs")

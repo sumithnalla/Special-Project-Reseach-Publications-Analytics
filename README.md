@@ -14,7 +14,7 @@ A full-stack research publication management application for synthetic faculty d
 React/Vite -> FastAPI REST API -> PyMongo -> MongoDB Atlas
 ```
 
-The five collections are `users`, `faculty_profiles`, `departments`, `publications`, and `audit_logs`. Official analytics and reports use only approved publications.
+The five collections are `users`, `faculty_profiles`, `departments`, `publications`, and `audit_logs`. Dashboard analytics use approved publications. Reports default to approved publications and can be filtered to include pending or rejected records.
 
 ## Setup
 
@@ -92,6 +92,14 @@ npm run build
 ```
 
 The database seed is idempotent. It creates 10 synthetic departments, 75 synthetic faculty profiles, and 2,500 synthetic publications without duplicating project-owned records.
+The verifier checks required collections, indexes, demo accounts, and status coverage without requiring the original publication count after normal edits or deletions. Do not reseed to replace records removed by users.
+
+## Administration
+
+- Faculty creation reports duplicate email and faculty ID conflicts separately. Use an unused email and faculty ID.
+- Publications support status, type, indexing, year, department, and text filters with up to 50 rows per page.
+- Reports can filter by faculty, department, topic, type, status, and inclusive submission dates. CSV, PDF, and Excel downloads use the same filters and summary counts.
+- After pulling backend changes, restart the backend process so new API routes and CORS settings are loaded. Start with `RUN_LOCAL.bat` when both services are stopped.
 
 ## Security notes
 

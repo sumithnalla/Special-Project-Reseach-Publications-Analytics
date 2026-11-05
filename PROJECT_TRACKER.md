@@ -41,3 +41,20 @@
 ## Last verified state
 
 2026-09-26: All three phases are complete. The user resumed the explicitly authorized `BookingProject` M0 cluster through Atlas UI; it is now used only through the dedicated `research_publication_analytics_app` user, restricted to the `research_publication_analytics` database. Live verification after idempotent reseeding: 5 collections, 10 departments, 75 faculty, 2,500 publications, and 1 active demo admin. Verification passed: 4 backend tests, production frontend build, live role endpoint smoke test, and a live faculty-submit -> admin-approve -> analytics-update workflow (the temporary verification publication was deleted after checking). The Vite frontend and FastAPI backend are running locally at the recorded handoff URLs.
+
+## Bugs-1 follow-up (2026-11-05)
+
+- [x] Initial GitHub upload before application changes: `d625296` on `origin/main`; secrets and dependencies ignored.
+- [x] Atlas CLI confirms authorized `BookingProject` M0 is running; PyMongo read-only verification passes against the application database.
+- [x] Diagnose screenshot faculty conflict (email already exists); report precise email/ID conflicts and remove newly inserted user if profile creation fails.
+- [x] Add designation choices for creation and editing.
+- [x] Verify PATCH preflight for both local origins; declare methods and headers explicitly and test approve/reject responses.
+- [x] Add 50-row publication pages, serial numbers, page controls, totals, and combined search/filters.
+- [x] Add filterable report preview plus CSV/PDF/Excel exports using the same matching records.
+- [x] Remove Pending and Analytics navigation/routes while retaining both dashboards.
+- [x] Add focused regression tests and build frontend.
+- [x] Update database verifier to accept normal publication deletions without reseeding.
+- [x] Final live-server smoke test after backend restart, review diff, commit and push completed changes.
+
+Current read-only Atlas check: five collections, 10 seeded departments, 75 seeded faculty, 2,494 remaining seeded publications, one active demo admin. No existing Atlas records were modified by this follow-up.
+Final checks: seven backend tests passed, frontend production build passed, local API health returned 200, new report route required authentication, and PATCH preflight returned 200 with the expected methods and origin. The frontend and backend remain available on ports 5173 and 8000.

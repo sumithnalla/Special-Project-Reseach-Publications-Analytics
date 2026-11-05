@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     mongodb_database: str = "research_publication_analytics"
     jwt_secret: str = "development-only-change-me"
     jwt_expire_minutes: Annotated[int, Field(gt=0)] = 480
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

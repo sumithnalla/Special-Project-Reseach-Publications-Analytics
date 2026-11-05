@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import axios from "axios";
 import {
   BarChart3,
   BookOpenCheck,
@@ -12,7 +13,6 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
-  PieChart,
   Plus,
   Search,
   ShieldCheck,
@@ -355,16 +355,20 @@ function PublicationModal({
 
 function Publications({
   admin,
-  pendingOnly = false,
   notify,
 }: {
   admin: boolean;
-  pendingOnly?: boolean;
   notify: (message: string) => void;
 }) {
   const [data, setData] = useState<any>({ items: [] });
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState(pendingOnly ? "pending" : "");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [publicationType, setPublicationType] = useState("");
+  const [indexing, setIndexing] = useState("");
+  const [year, setYear] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<Publication | undefined | null>(null);
   const [loading, setLoading] = useState(true);
@@ -372,17 +376,17 @@ function Publications({
     setLoading(true);
     try {
       const { data: result } = await api.get(
-        admin
-          ? pendingOnly
-            ? "/api/admin/publications/pending"
-            : "/api/admin/publications"
-          : "/api/faculty/publications",
+        admin ? "/api/admin/publications" : "/api/faculty/publications",
         {
           params: {
             page,
-            page_size: 15,
-            search: search || undefined,
+            page_size: 50,
+            search: appliedSearch || undefined,
             status: status || undefined,
+            publication_type: publicationType || undefined,
+            indexing: indexing || undefined,
+            year: year || undefined,
+            department_id: admin ? departmentId || undefined : undefined,
           },
         },
       );
@@ -395,7 +399,10 @@ function Publications({
   }
   useEffect(() => {
     load();
-  }, [page, status, admin, pendingOnly]);
+  }, [page, status, publicationType, indexing, year, departmentId, appliedSearch, admin]);
+  useEffect(() => {
+    if (admin) api.get("/api/admin/departments").then((r) => setDepartments(r.data)).catch((e) => notify(apiError(e)));
+  }, [admin]);
   async function action(id: string, kind: "approve" | "reject" | "delete") {
     const reason = kind === "reject" ? window.prompt("Rejection reason:") : "";
     if (kind === "reject" && !reason) return;
@@ -414,8 +421,9 @@ function Publications({
           `/api/admin/publications/${id}/${kind}`,
           kind === "reject" ? { reason } : undefined,
         );
-      notify(`Publication ${kind}d successfully.`);
-      load();
+      notify(kind === "delete" ? "Publication deleted." : kind === "approve" ? "Publication approved." : "Publication rejected.");
+      if (kind === "delete" && data.items.length === 1 && page > 1) setPage(page - 1);
+      else load();
     } catch (e) {
       notify(apiError(e));
     }
@@ -430,13 +438,7 @@ function Publications({
         }}
       >
         <div>
-          <h1 className="page-title">
-            {pendingOnly
-              ? "Pending Approvals"
-              : admin
-                ? "Publications"
-                : "My Publications"}
-          </h1>
+          <h1 className="page-title">{admin ? "Publications" : "My Publications"}</h1>
           <p className="subtle">
             {admin
               ? "Search, review, and manage institutional research records."
@@ -455,12 +457,11 @@ function Publications({
           placeholder="Search title, venue, DOI"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && load()}
+          onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); setAppliedSearch(search.trim()); } }}
         />
         <select
           className="field"
           value={status}
-          disabled={pendingOnly}
           onChange={(e) => {
             setStatus(e.target.value);
             setPage(1);
@@ -471,11 +472,25 @@ function Publications({
             <option key={item}>{item}</option>
           ))}
         </select>
+        <select className="field" value={publicationType} onChange={(e) => { setPublicationType(e.target.value); setPage(1); }} aria-label="Publication type">
+          <option value="">All types</option>
+          <option value="journal">Journal</option><option value="conference">Conference</option><option value="book_chapter">Book chapter</option>
+        </select>
+        <select className="field" value={indexing} onChange={(e) => { setIndexing(e.target.value); setPage(1); }} aria-label="Indexing">
+          <option value="">All indexing</option>
+          {["Scopus", "Web of Science", "UGC/Other", "Not Indexed"].map((value) => <option key={value}>{value}</option>)}
+        </select>
+        <input className="field year-filter" type="number" min="2020" max="2100" placeholder="Year" value={year} onChange={(e) => { setYear(e.target.value); setPage(1); }} aria-label="Publication year" />
+        {admin && <select className="field" value={departmentId} onChange={(e) => { setDepartmentId(e.target.value); setPage(1); }} aria-label="Department">
+          <option value="">All departments</option>
+          {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+        </select>}
         <button
           className="button secondary"
           onClick={() => {
             setPage(1);
-            load();
+            setAppliedSearch(search.trim());
+            if (search.trim() === appliedSearch && page === 1) load();
           }}
         >
           <Search size={16} /> Search
@@ -488,6 +503,7 @@ function Publications({
           <table>
             <thead>
               <tr>
+                <th>#</th>
                 <th>Title</th>
                 {admin && <th>Faculty</th>}
                 <th>Type</th>
@@ -499,8 +515,9 @@ function Publications({
               </tr>
             </thead>
             <tbody>
-              {data.items.map((item: Publication) => (
+              {data.items.map((item: Publication, index: number) => (
                 <tr key={item.id}>
+                  <td>{(page - 1) * 50 + index + 1}</td>
                   <td>
                     <strong>{item.title}</strong>
                     <br />
@@ -520,7 +537,7 @@ function Publications({
                   <td>
                     <Status value={item.status} />
                   </td>
-                  <td style={{ display: "flex", gap: 6 }}>
+                  <td><div className="row-actions">
                     <button
                       className="icon-button"
                       title="Edit publication"
@@ -553,7 +570,7 @@ function Publications({
                     >
                       <LogOut size={16} />
                     </button>
-                  </td>
+                  </div></td>
                 </tr>
               ))}
             </tbody>
@@ -562,19 +579,20 @@ function Publications({
           <div className="empty">No publications match these filters.</div>
         )}
         <div className="pagination">
-          <span>
-            Showing {data.items?.length || 0} of {data.total || 0}
-          </span>
-          <span>
+          <span>Showing {data.total ? (page - 1) * 50 + 1 : 0}-{Math.min(page * 50, data.total || 0)} of {data.total || 0}</span>
+          <span className="page-controls">
             <button
               className="icon-button"
+              title="Previous page"
               disabled={page <= 1}
               onClick={() => setPage(page - 1)}
             >
               &lt;
-            </button>{" "}
+            </button>
+            {Array.from({ length: data.total_pages || 1 }, (_: unknown, i: number) => i + 1).filter((number: number) => number === 1 || number === data.total_pages || Math.abs(number - page) <= 2).map((number: number) => <button key={number} className={`icon-button ${page === number ? "current-page" : ""}`} aria-label={`Page ${number}`} aria-current={page === number ? "page" : undefined} onClick={() => setPage(number)}>{number}</button>)}
             <button
               className="icon-button"
+              title="Next page"
               disabled={page >= (data.total_pages || 1)}
               onClick={() => setPage(page + 1)}
             >
@@ -756,6 +774,9 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
   const [data, setData] = useState<any>({ items: [] });
   const [departments, setDepartments] = useState<any[]>([]);
   const [show, setShow] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const designations = ["Assistant Professor", "Associate Professor", "Professor", "HOD", "Lecturer", "Senior Lecturer", "Research Professor", "Visiting Professor"];
   const [form, setForm] = useState<any>({
     name: "",
     email: "",
@@ -766,23 +787,32 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
     joining_year: 2024,
     temporary_password: "123456",
   });
-  const load = () => api.get("/api/admin/faculty").then((r) => setData(r.data));
+  const load = () => api.get("/api/admin/faculty", { params: { page_size: 100 } }).then((r) => setData(r.data));
   useEffect(() => {
     load();
     api.get("/api/admin/departments").then((r) => setDepartments(r.data));
   }, []);
   async function save(event: FormEvent) {
     event.preventDefault();
+    setFormError("");
+    setSaving(true);
     try {
       await api.post("/api/admin/faculty", {
         ...form,
-        research_areas: form.research_areas.split(",").filter(Boolean),
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        faculty_id: form.faculty_id.trim().toUpperCase(),
+        joining_year: Number(form.joining_year),
+        research_areas: form.research_areas.split(",").map((area: string) => area.trim()).filter(Boolean),
       });
       setShow(false);
+      setForm({ name: "", email: "", faculty_id: "", department_id: "", designation: "Assistant Professor", research_areas: "", joining_year: new Date().getFullYear(), temporary_password: "123456" });
       notify("Faculty account created successfully.");
       load();
     } catch (e) {
-      notify(apiError(e));
+      setFormError(apiError(e));
+    } finally {
+      setSaving(false);
     }
   }
   async function toggle(item: any) {
@@ -796,11 +826,9 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
       notify(apiError(e));
     }
   }
-  async function edit(item: any) {
-    const designation = window.prompt("Designation", item.designation);
-    if (!designation?.trim()) return;
+  async function edit(item: any, designation: string) {
     try {
-      await api.put(`/api/admin/faculty/${item.id}`, { designation: designation.trim() });
+      await api.put(`/api/admin/faculty/${item.id}`, { designation });
       notify("Faculty profile updated.");
       load();
     } catch (e) {
@@ -845,13 +873,10 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
                   <Status value={item.status} />
                 </td>
                 <td>
-                  <button
-                    className="button secondary"
-                    style={{ marginRight: 6 }}
-                    onClick={() => edit(item)}
-                  >
-                    Edit
-                  </button>
+                  <select className="field" aria-label={`Designation for ${item.name}`} value={item.designation} onChange={(e) => edit(item, e.target.value)} style={{ marginRight: 6 }}>
+                    {!designations.includes(item.designation) && <option value={item.designation}>{item.designation}</option>}
+                    {designations.map((designation) => <option key={designation}>{designation}</option>)}
+                  </select>
                   <button
                     className="button secondary"
                     onClick={() => toggle(item)}
@@ -868,12 +893,12 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
         <div className="modal-backdrop">
           <form className="modal" onSubmit={save}>
             <h2 className="page-title">Add Faculty</h2>
+            {formError && <div className="notice error" role="alert">{formError}</div>}
             <div className="form-grid">
               {[
                 ["Full name", "name"],
                 ["Email", "email"],
                 ["Faculty ID", "faculty_id"],
-                ["Designation", "designation"],
                 ["Joining year", "joining_year"],
                 ["Temporary password", "temporary_password"],
                 ["Research areas (comma separated)", "research_areas"],
@@ -890,6 +915,11 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
                   />
                 </label>
               ))}
+              <label>Designation
+                <select className="field" value={form.designation} onChange={(e) => setForm({ ...form, designation: e.target.value })}>
+                  {designations.map((designation) => <option key={designation}>{designation}</option>)}
+                </select>
+              </label>
               <label>
                 Department
                 <select
@@ -917,7 +947,7 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
               >
                 Cancel
               </button>
-              <button className="button">Create faculty</button>
+              <button className="button" disabled={saving}>{saving ? "Creating..." : "Create faculty"}</button>
             </div>
           </form>
         </div>
@@ -927,68 +957,73 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
 }
 
 function Reports({ notify }: { notify: (message: string) => void }) {
-  async function download(kind: "pdf" | "excel") {
+  const [options, setOptions] = useState<any>({ departments: [], faculty: [] });
+  const [filters, setFilters] = useState<any>({ faculty_id: "", department_id: "", topic: "", publication_type: "", status: "approved", date_from: "", date_to: "" });
+  const [summary, setSummary] = useState<any>();
+  const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState("");
+  const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ""));
+  useEffect(() => {
+    api.get("/api/admin/reports/options").then((response) => setOptions(response.data)).catch((e) => setError(apiError(e)));
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      api.get("/api/admin/reports/publications/summary", { params }).then((response) => {
+        if (active) { setSummary(response.data); setError(""); }
+      }).catch((e) => { if (active) { setSummary(undefined); setError(apiError(e)); } });
+    }, 300);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [filters]);
+  const change = (key: string, value: string) => setFilters((current: any) => ({ ...current, [key]: value, ...(key === "department_id" ? { faculty_id: "" } : {}) }));
+  async function download(kind: "pdf" | "csv" | "excel") {
+    setDownloading(kind);
     try {
       const response = await api.get(
         `/api/admin/reports/publications/${kind}`,
-        { responseType: "blob" },
+        { responseType: "blob", params },
       );
       const link = document.createElement("a");
-      link.href = URL.createObjectURL(response.data);
-      link.download = `research-publication-analytics-report.${kind === "pdf" ? "pdf" : "xlsx"}`;
+      const url = URL.createObjectURL(response.data);
+      link.href = url;
+      link.download = `research-publication-analytics-report.${kind === "excel" ? "xlsx" : kind}`;
       link.click();
-      URL.revokeObjectURL(link.href);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       notify(`${kind.toUpperCase()} report generated.`);
     } catch (e) {
-      notify(apiError(e));
+      if (axios.isAxiosError(e) && e.response?.data instanceof Blob) {
+        try { notify(JSON.parse(await e.response.data.text()).detail || apiError(e)); }
+        catch { notify(apiError(e)); }
+      } else notify(apiError(e));
+    } finally {
+      setDownloading("");
     }
   }
   return (
     <>
       <h1 className="page-title">Reports</h1>
-      <p className="subtle">
-        Download approved publication data and institution summaries.
-      </p>
-      <div
-        className="grid"
-        style={{
-          gridTemplateColumns: "repeat(auto-fit,minmax(250px,1fr))",
-          marginTop: 22,
-        }}
-      >
-        <section className="panel">
-          <FileText size={28} color="#0f766e" />
-          <h3 className="panel-title" style={{ marginTop: 16 }}>
-            PDF Analytics Report
-          </h3>
-          <p className="subtle">
-            Summary metrics, yearly trends, and approved publication entries.
-          </p>
-          <button
-            className="button"
-            style={{ marginTop: 18 }}
-            onClick={() => download("pdf")}
-          >
-            <Download size={16} /> Download PDF
-          </button>
-        </section>
-        <section className="panel">
-          <FileBarChart size={28} color="#2563eb" />
-          <h3 className="panel-title" style={{ marginTop: 16 }}>
-            Excel Workbook
-          </h3>
-          <p className="subtle">
-            Summary, publications, and yearly breakdown in separate sheets.
-          </p>
-          <button
-            className="button"
-            style={{ marginTop: 18 }}
-            onClick={() => download("excel")}
-          >
-            <Download size={16} /> Download Excel
-          </button>
-        </section>
-      </div>
+      <p className="subtle">Publication report</p>
+      <section className="panel report-panel">
+        <div className="report-filters">
+          <label>Department<select className="field" value={filters.department_id} onChange={(e) => change("department_id", e.target.value)}><option value="">All departments</option>{options.departments.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>Faculty<select className="field" value={filters.faculty_id} onChange={(e) => change("faculty_id", e.target.value)}><option value="">All faculty</option>{options.faculty.filter((item: any) => !filters.department_id || item.department_id === filters.department_id).map((item: any) => <option key={item.id} value={item.id}>{item.name} ({item.faculty_id})</option>)}</select></label>
+          <label>Research topic<input className="field" value={filters.topic} onChange={(e) => change("topic", e.target.value)} placeholder="Title, abstract, or area" /></label>
+          <label>Type<select className="field" value={filters.publication_type} onChange={(e) => change("publication_type", e.target.value)}><option value="">All types</option><option value="journal">Journal</option><option value="conference">Conference</option><option value="book_chapter">Book chapter</option></select></label>
+          <label>Status<select className="field" value={filters.status} onChange={(e) => change("status", e.target.value)}><option value="all">All statuses</option><option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option></select></label>
+          <label>Submitted from<input className="field" type="date" value={filters.date_from} onChange={(e) => change("date_from", e.target.value)} /></label>
+          <label>Submitted through<input className="field" type="date" value={filters.date_to} onChange={(e) => change("date_to", e.target.value)} /></label>
+        </div>
+        {error && <div className="notice error" role="alert">{error}</div>}
+        {summary && <div className="report-summary">
+          <div><strong>{summary.total_publications.toLocaleString()}</strong><span>Publications</span></div>
+          <div><strong>{summary.total_citations.toLocaleString()}</strong><span>Citations</span></div>
+          <div><strong>{summary.average_citations}</strong><span>Average citations</span></div>
+          <div><strong>{summary.faculty_count}</strong><span>Faculty</span></div>
+        </div>}
+        <div className="report-actions">
+          {(["csv", "pdf", "excel"] as const).map((kind) => <button key={kind} className="button secondary" disabled={!!downloading || !!error} onClick={() => download(kind)}><Download size={16} /> {downloading === kind ? "Generating..." : `Download ${kind === "excel" ? "Excel" : kind.toUpperCase()}`}</button>)}
+        </div>
+      </section>
     </>
   );
 }
@@ -1046,8 +1081,11 @@ function App() {
   };
   const admin = user?.role === "admin";
   const defaultPath = admin ? "/admin/dashboard" : "/faculty/dashboard";
+  const validPaths = admin
+    ? ["/admin/dashboard", "/admin/faculty", "/admin/publications", "/admin/reports", "/admin/audit-logs"]
+    : ["/faculty/dashboard", "/faculty/profile", "/faculty/publications"];
   useEffect(() => {
-    if (user && !location.pathname.startsWith(`/${user.role}`))
+    if (user && !validPaths.includes(location.pathname))
       navigate(defaultPath, { replace: true });
   }, [user, location.pathname]);
   if (!user)
@@ -1068,8 +1106,6 @@ function App() {
         ["Dashboard", "/admin/dashboard", LayoutDashboard],
         ["Faculty", "/admin/faculty", Users],
         ["Publications", "/admin/publications", BookOpenCheck],
-        ["Pending", "/admin/pending", ClipboardList],
-        ["Analytics", "/admin/analytics", PieChart],
         ["Reports", "/admin/reports", FileBarChart],
         ["Audit Logs", "/admin/audit-logs", ShieldCheck],
       ]
@@ -1077,19 +1113,14 @@ function App() {
         ["Dashboard", "/faculty/dashboard", LayoutDashboard],
         ["My Profile", "/faculty/profile", Users],
         ["My Publications", "/faculty/publications", BookOpenCheck],
-        ["Analytics", "/faculty/analytics", BarChart3],
       ];
   let page: React.ReactNode = <Dashboard admin={!!admin} />;
   if (location.pathname.endsWith("/profile"))
     page = <Profile notify={notify} />;
   if (location.pathname.endsWith("/publications"))
     page = <Publications admin={!!admin} notify={notify} />;
-  if (location.pathname.endsWith("/pending"))
-    page = <Publications admin pendingOnly notify={notify} />;
   if (location.pathname.endsWith("/faculty") && admin)
     page = <FacultyManagement notify={notify} />;
-  if (location.pathname.endsWith("/analytics"))
-    page = <Dashboard admin={!!admin} />;
   if (location.pathname.endsWith("/reports"))
     page = <Reports notify={notify} />;
   if (location.pathname.endsWith("/audit-logs")) page = <AuditLogs />;
