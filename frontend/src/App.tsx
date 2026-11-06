@@ -10,17 +10,22 @@ import {
   ClipboardList,
   Download,
   FileBarChart,
-  FileText,
   LayoutDashboard,
   LogOut,
+  Menu,
+  Pencil,
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
   Users,
+  X,
+  XCircle,
 } from "lucide-react";
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   Legend,
   Line,
@@ -41,7 +46,7 @@ type User = {
   status: string;
 };
 type Publication = Record<string, any>;
-const palette = ["#0f766e", "#f59e0b", "#2563eb", "#e11d48", "#7c3aed"];
+const palette = ["#a990e6", "#83cfae", "#92b8f1", "#eec18f", "#89a77b"];
 const blankPublication = {
   title: "",
   authors: "",
@@ -105,31 +110,34 @@ function Chart({
   return (
     <section className="panel">
       <h3 className="panel-title">{title}</h3>
-      <div style={{ height: 270 }}>
+      <div className="chart-canvas">
         <ResponsiveContainer>
           {type === "line" ? (
             <LineChart data={normalized}>
-              <XAxis dataKey="label" />
-              <YAxis allowDecimals={false} />
+              <CartesianGrid stroke="#e9edeb" strokeDasharray="4 5" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#78838a", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={14} />
+              <YAxis allowDecimals={false} tick={{ fill: "#78838a", fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
               <Tooltip />
               <Legend />
               <Line
                 type="monotone"
                 dataKey="value"
                 name="Publications"
-                stroke="#0f766e"
+                stroke="#9279d4"
                 strokeWidth={3}
+                dot={{ r: 4, fill: "#9279d4", strokeWidth: 0 }}
               />
             </LineChart>
           ) : type === "bar" ? (
             <BarChart data={normalized}>
-              <XAxis dataKey="label" />
-              <YAxis allowDecimals={false} />
+              <CartesianGrid stroke="#e9edeb" strokeDasharray="4 5" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#78838a", fontSize: 11 }} tickLine={false} axisLine={false} minTickGap={14} />
+              <YAxis allowDecimals={false} tick={{ fill: "#78838a", fontSize: 11 }} tickLine={false} axisLine={false} width={36} />
               <Tooltip />
               <Bar
                 dataKey="value"
                 name="Publications"
-                fill="#0f766e"
+                fill="#8ecfae"
                 radius={[4, 4, 0, 0]}
               />
             </BarChart>
@@ -430,13 +438,7 @@ function Publications({
   }
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
+      <div className="page-heading-row">
         <div>
           <h1 className="page-title">{admin ? "Publications" : "My Publications"}</h1>
           <p className="subtle">
@@ -543,7 +545,7 @@ function Publications({
                       title="Edit publication"
                       onClick={() => setModal(item)}
                     >
-                      <FileText size={16} />
+                      <Pencil size={16} />
                     </button>
                     {admin && item.status !== "approved" && (
                       <button
@@ -560,7 +562,7 @@ function Publications({
                         title="Reject"
                         onClick={() => action(item.id, "reject")}
                       >
-                        <ShieldCheck size={16} />
+                        <XCircle size={16} />
                       </button>
                     )}
                     <button
@@ -568,7 +570,7 @@ function Publications({
                       title="Delete publication"
                       onClick={() => action(item.id, "delete")}
                     >
-                      <LogOut size={16} />
+                      <Trash2 size={16} />
                     </button>
                   </div></td>
                 </tr>
@@ -837,7 +839,7 @@ function FacultyManagement({ notify }: { notify: (message: string) => void }) {
   }
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <div className="page-heading-row">
         <div>
           <h1 className="page-title">Faculty Management</h1>
           <p className="subtle">
@@ -1075,6 +1077,7 @@ function App() {
     }
   });
   const [toast, setToast] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3600);
@@ -1088,6 +1091,7 @@ function App() {
     if (user && !validPaths.includes(location.pathname))
       navigate(defaultPath, { replace: true });
   }, [user, location.pathname]);
+  useEffect(() => setMobileNavOpen(false), [location.pathname]);
   if (!user)
     return (
       <Login
@@ -1114,6 +1118,7 @@ function App() {
         ["My Profile", "/faculty/profile", Users],
         ["My Publications", "/faculty/publications", BookOpenCheck],
       ];
+  const currentPage = String(nav.find(([, path]) => path === location.pathname)?.[0] || "Dashboard");
   let page: React.ReactNode = <Dashboard admin={!!admin} />;
   if (location.pathname.endsWith("/profile"))
     page = <Profile notify={notify} />;
@@ -1126,18 +1131,22 @@ function App() {
   if (location.pathname.endsWith("/audit-logs")) page = <AuditLogs />;
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {mobileNavOpen && <button className="sidebar-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
+      <aside id="app-sidebar" className={`sidebar ${mobileNavOpen ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">
             <Building2 size={19} />
           </div>
           <span>Research Analytics</span>
+          <button className="sidebar-close icon-button" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
         </div>
-        <nav className="nav">
+        <div className="sidebar-section-label">Workspace</div>
+        <nav className="nav" aria-label="Main navigation">
           {nav.map(([label, path, Icon]: any) => (
             <button
               key={path}
               className={location.pathname === path ? "active" : ""}
+              aria-current={location.pathname === path ? "page" : undefined}
               onClick={() => navigate(path)}
             >
               <Icon size={18} />
@@ -1146,8 +1155,13 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-footer">
+          <div className="sidebar-profile">
+            <span className="avatar avatar-large">{user.email.slice(0, 2).toUpperCase()}</span>
+            <strong>{admin ? "Administrator" : "Faculty member"}</strong>
+            <small title={user.email}>{user.email}</small>
+          </div>
           <button
-            className="nav button"
+            className="logout-button"
             onClick={() => {
               localStorage.removeItem("rpa_token");
               localStorage.removeItem("rpa_user");
@@ -1162,13 +1176,18 @@ function App() {
       </aside>
       <main className="main">
         <header className="topbar">
-          <div>
-            <strong>
-              {admin ? "Administrator workspace" : "Faculty workspace"}
-            </strong>
-            <div className="subtle">{user.email}</div>
+          <div className="topbar-heading">
+            <button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
+            <div>
+              <span className="topbar-kicker">Research Analytics / {currentPage}</span>
+              <strong>{admin ? "Administrator workspace" : "Faculty workspace"}</strong>
+            </div>
           </div>
-          <Status value={user.status} />
+          <div className="topbar-user">
+            <Status value={user.status} />
+            <span className="avatar">{user.email.slice(0, 2).toUpperCase()}</span>
+            <span className="topbar-user-name" title={user.email}>{user.email}</span>
+          </div>
         </header>
         <div className="content">{page}</div>
       </main>
