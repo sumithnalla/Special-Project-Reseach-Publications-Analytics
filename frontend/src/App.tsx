@@ -10,16 +10,15 @@ import {
   ClipboardList,
   Download,
   FileBarChart,
+  Info,
   LayoutDashboard,
   LogOut,
-  Menu,
   Pencil,
   Plus,
   Search,
   ShieldCheck,
   Trash2,
   Users,
-  X,
   XCircle,
 } from "lucide-react";
 import {
@@ -379,6 +378,7 @@ function Publications({
   const [departments, setDepartments] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState<Publication | undefined | null>(null);
+  const [reasonPublication, setReasonPublication] = useState<Publication | null>(null);
   const [loading, setLoading] = useState(true);
   async function load() {
     setLoading(true);
@@ -537,7 +537,20 @@ function Publications({
                   <td>{item.indexing}</td>
                   <td>{item.citation_count}</td>
                   <td>
-                    <Status value={item.status} />
+                    <span className="status-with-reason">
+                      <Status value={item.status} />
+                      {item.status === "rejected" && (
+                        <button
+                          type="button"
+                          className="icon-button reason-trigger"
+                          title="View rejection reason"
+                          aria-label={`View rejection reason for ${item.title}`}
+                          onClick={() => setReasonPublication(item)}
+                        >
+                          <Info size={15} />
+                        </button>
+                      )}
+                    </span>
                   </td>
                   <td><div className="row-actions">
                     <button
@@ -613,6 +626,20 @@ function Publications({
             load();
           }}
         />
+      )}
+      {reasonPublication && (
+        <div className="modal-backdrop">
+          <div className="modal reason-modal" role="dialog" aria-modal="true" aria-labelledby="rejection-title" aria-describedby="rejection-reason">
+            <h2 className="page-title" id="rejection-title">Rejection reason</h2>
+            <p className="subtle">{reasonPublication.title}</p>
+            <p className="reason-text" id="rejection-reason">
+              {reasonPublication.rejection_reason?.trim() || "No rejection reason was recorded."}
+            </p>
+            <div className="actions">
+              <button type="button" className="button secondary" onClick={() => setReasonPublication(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
@@ -1077,7 +1104,6 @@ function App() {
     }
   });
   const [toast, setToast] = useState("");
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3600);
@@ -1091,7 +1117,6 @@ function App() {
     if (user && !validPaths.includes(location.pathname))
       navigate(defaultPath, { replace: true });
   }, [user, location.pathname]);
-  useEffect(() => setMobileNavOpen(false), [location.pathname]);
   if (!user)
     return (
       <Login
@@ -1131,14 +1156,12 @@ function App() {
   if (location.pathname.endsWith("/audit-logs")) page = <AuditLogs />;
   return (
     <div className="app-shell">
-      {mobileNavOpen && <button className="sidebar-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
-      <aside id="app-sidebar" className={`sidebar ${mobileNavOpen ? "open" : ""}`}>
+      <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
             <Building2 size={19} />
           </div>
           <span>Research Analytics</span>
-          <button className="sidebar-close icon-button" title="Close navigation" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)}><X size={18} /></button>
         </div>
         <div className="sidebar-section-label">Workspace</div>
         <nav className="nav" aria-label="Main navigation">
@@ -1177,7 +1200,6 @@ function App() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-heading">
-            <button className="mobile-menu icon-button" title="Open navigation" aria-label="Open navigation" aria-controls="app-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
             <div>
               <span className="topbar-kicker">Research Analytics / {currentPage}</span>
               <strong>{admin ? "Administrator workspace" : "Faculty workspace"}</strong>
