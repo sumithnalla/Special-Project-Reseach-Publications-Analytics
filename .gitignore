@@ -11,3 +11,8 @@ dist/
 coverage/
 *.tsbuildinfo
 .DS_Store
+.CODEX_ENVIRONMENT_AND_DATABASE_RULES.MD
+.PROJECT_TRACKER.MD
+prompts/
+.research_publication_analytics_codex_master_prompt.md
+.research_publication_analytics_project_functional_specification.md
